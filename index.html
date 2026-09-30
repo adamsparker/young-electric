@@ -1,0 +1,1711 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Осенний лагерь — Юный электроник</title>
+<style>
+:root{
+  --ink:#1b2130; --muted:#8b93a7; --line:#e8ebf1; --accent:#073423;
+  --shadow: 0 6px 24px rgba(20,25,45,.10), 0 1px 2px rgba(20,25,45,.06);
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;overflow:hidden;overscroll-behavior:none}
+body{
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Inter, sans-serif;
+  background:#fff; color:var(--ink);
+  -webkit-user-select:none; user-select:none;
+  -webkit-tap-highlight-color:transparent;
+}
+
+/* ── фон в точку ───────────────────────────────── */
+#grid{
+  position:fixed; inset:0; cursor:grab;
+  background-image: radial-gradient(circle, #d5dae4 1.15px, transparent 1.15px);
+  background-size:26px 26px;
+}
+#grid.panning{cursor:grabbing}
+
+/* ── мир ───────────────────────────────────────── */
+#world{position:absolute; top:0; left:0; width:0; height:0;
+  transform-origin:0 0; pointer-events:none;}
+#wireLayer{position:absolute; overflow:visible; width:1px; height:1px;}
+.wire{pointer-events:stroke; cursor:pointer; transition:stroke-width .12s}
+.wire:hover{stroke-width:6}
+.wire.temp{stroke-dasharray:6 5; opacity:.75}
+
+.comp{position:absolute; pointer-events:auto; cursor:grab;}
+.comp.dragging{cursor:grabbing; z-index:5}
+.comp svg{overflow:visible; display:block}
+.pin-hit{pointer-events:all; cursor:crosshair}
+.pin{fill:#c7ced9; stroke:#fff; stroke-width:1.6; transition:fill .12s}
+.pin-hit:hover + .pin, .pin.hot{fill:var(--accent)}
+.pin.used{fill:#8a94a6}
+.pin-label{font:600 7.5px ui-sans-serif,system-ui; pointer-events:none; opacity:.55}
+
+.led-dome{transition:filter .1s, opacity .1s}
+.comp.lit .led-dome{filter:drop-shadow(0 0 9px currentColor) brightness(1.35)}
+.comp.lit .led-glow{opacity:.55}
+
+/* ── карточка уровня ──────────────────────────── */
+#levelCard{
+  position:fixed; top:18px; left:18px; width:296px; z-index:30;
+  background:rgba(255,255,255,.86); backdrop-filter:blur(14px) saturate(1.6);
+  border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow);
+  padding:14px 16px 12px; transition:box-shadow .2s;
+}
+#levelCard .lc-top{display:flex; align-items:center; gap:8px}
+#levelCard .lc-num{
+  font:700 10px ui-monospace,monospace; letter-spacing:.06em;
+  background:var(--accent); color:#fff; padding:3px 7px; border-radius:7px;
+}
+#levelCard .lc-title{font-weight:650; font-size:13.5px; flex:1}
+#levelCard .lc-body{
+  font-size:12.5px; line-height:1.55; color:#4a5265; margin-top:9px;
+  max-height:220px; overflow:auto; transition:max-height .25s, opacity .2s;
+}
+#levelCard.collapsed .lc-body{max-height:0; opacity:0; margin-top:0; overflow:hidden}
+#levelCard .lc-actions{display:flex; gap:6px; margin-top:11px}
+#levelCard button{
+  font:inherit; font-size:12px; font-weight:600; border-radius:9px; cursor:pointer;
+  border:1px solid var(--line); background:#fff; color:var(--ink);
+  padding:6px 11px; transition:.15s;
+}
+#levelCard button:hover{background:#f4f5f9}
+#levelCard #checkLvl{background:var(--accent); color:#fff; border-color:transparent; flex:1}
+#levelCard #checkLvl:hover{background:#419778}
+#levelCard .dots{display:flex; gap:5px; margin-top:10px; justify-content:center}
+#levelCard .dot{width:6px;height:6px;border-radius:50%;background:#dfe3ec;cursor:pointer;transition:.15s}
+#levelCard .dot.on{background:var(--accent); transform:scale(1.3)}
+#levelCard .dot.done{background:#22c55e}
+
+/* ── плюсик и палитра ─────────────────────────── */
+#addBtn{
+  position:fixed; left:22px; bottom:22px; z-index:40;
+  width:54px; height:54px; border-radius:18px; border:none; cursor:pointer;
+  background:var(--ink); color:#fff; font-size:26px; line-height:1;
+  box-shadow:var(--shadow); transition:transform .18s cubic-bezier(.34,1.56,.64,1), background .18s;
+}
+#addBtn:hover{transform:scale(1.07) rotate(90deg); background:#2c966f}
+#addBtn.open{transform:rotate(45deg); background:var(--accent)}
+
+#palette{
+  position:fixed; left:22px; bottom:88px; z-index:39;
+  background:rgba(255,255,255,.92); backdrop-filter:blur(14px);
+  border:1px solid var(--line); border-radius:18px; box-shadow:var(--shadow);
+  padding:8px; display:grid; grid-template-columns:1fr 1fr; gap:4px; width:290px;
+  opacity:0; transform:translateY(10px) scale(.96); pointer-events:none;
+  transition:.2s cubic-bezier(.34,1.4,.64,1);
+}
+#palette.open{opacity:1; transform:none; pointer-events:auto}
+#palette button{
+  display:flex; align-items:center; gap:9px; padding:9px 10px; border-radius:11px;
+  border:none; background:transparent; cursor:pointer; font:inherit; font-size:12.5px;
+  font-weight:550; color:var(--ink); text-align:left; transition:.12s;
+}
+#palette button:hover{background:#f0f2f8}
+#palette .ic{width:20px;height:20px;flex:0 0 20px;display:grid;place-items:center}
+
+/* ── плавающая панель выделения ───────────────── */
+#selBar{
+  position:fixed; z-index:35; display:none; align-items:center; gap:4px;
+  background:rgba(255,255,255,.94); backdrop-filter:blur(12px);
+  border:1px solid var(--line); border-radius:13px; box-shadow:var(--shadow);
+  padding:5px 7px; transform:translate(-50%,-100%);
+}
+#selBar.on{display:flex}
+#selBar button{
+  border:none; background:transparent; cursor:pointer; border-radius:8px;
+  width:28px; height:28px; display:grid; place-items:center; color:#5a6377; font-size:15px;
+  transition:.12s;
+}
+#selBar button:hover{background:#f0f2f8; color:var(--ink)}
+#selBar .sw{width:18px;height:18px;border-radius:50%;cursor:pointer;border:2px solid #fff;
+  box-shadow:0 0 0 1px #d5dae4; transition:.12s}
+#selBar .sw:hover{transform:scale(1.18)}
+#selBar .sep{width:1px;height:18px;background:var(--line);margin:0 3px}
+
+/* ── панель кода ──────────────────────────────── */
+#codePanel{
+  position:fixed; top:0; right:0; bottom:0; width:490px; z-index:50;
+  background:#fff; border-left:1px solid var(--line);
+  box-shadow:-14px 0 44px rgba(20,25,45,.07);
+  display:flex; flex-direction:column;
+  transform:translateX(102%); transition:transform .3s cubic-bezier(.4,0,.2,1);
+}
+#codePanel.open{transform:none}
+.cp-head{
+  display:flex; align-items:center; gap:10px; padding:14px 16px;
+  border-bottom:1px solid var(--line); flex:0 0 auto;
+}
+.cp-head h2{font-size:14px; margin:0; font-weight:650; flex:1}
+.cp-head .sub{font-size:11px;color:var(--muted);font-weight:500}
+.cp-head button{
+  border:none; border-radius:10px; cursor:pointer; font:inherit; font-weight:650;
+  padding:7px 13px; font-size:12.5px; transition:.15s;
+}
+#runBtn{background:#16a34a; color:#fff}
+#runBtn:hover{background:#15803d}
+#runBtn.stop{background:#dc2626}
+#closePanel{background:#f0f2f8; color:#5a6377; width:32px; padding:0; height:32px; font-size:17px}
+#closePanel:hover{background:#e6e9f2}
+.cp-body{flex:1; display:flex; min-height:0}
+.cp-palette{
+  width:172px; flex:0 0 172px; border-right:1px solid var(--line);
+  overflow-y:auto; padding:12px 10px; background:#fbfcfe;
+}
+.cp-palette .cat{font-size:9.5px; font-weight:700; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--muted); margin:12px 0 6px}
+.cp-palette .cat:first-child{margin-top:0}
+.cp-script{flex:1; overflow-y:auto; padding:16px 16px 90px; background:
+  radial-gradient(circle, #e9ecf3 1px, transparent 1px) 0 0/18px 18px;}
+
+/* ── блоки ────────────────────────────────────── */
+.blk{margin-bottom:6px; position:relative}
+.blk-head{
+  display:flex; align-items:center; gap:3px; flex-wrap:wrap;
+  background:var(--c); color:#fff; border-radius:9px; padding:7px 9px;
+  font-size:12px; font-weight:600; cursor:grab;
+  box-shadow:0 1px 2px rgba(20,25,45,.16), inset 0 -1px 0 rgba(0,0,0,.09);
+  transition:filter .12s;
+}
+.blk-head:hover{filter:brightness(1.06)}
+.blk-head:active{cursor:grabbing}
+.blk-pal .blk-head{cursor:grab; margin-bottom:0}
+.blk select,.blk input{
+  font:inherit; font-size:11.5px; font-weight:650; border:none; border-radius:6px;
+  background:rgba(255,255,255,.94); color:#1b2130; padding:2px 4px;
+  outline:none; cursor:pointer; max-width:76px;
+}
+.blk input{width:52px; text-align:center}
+.blk-del{
+  margin-left:auto; border:none; background:rgba(255,255,255,.18); color:#fff;
+  width:17px; height:17px; border-radius:5px; cursor:pointer; font-size:12px;
+  line-height:1; display:grid; place-items:center; padding:0; opacity:.6;
+}
+.blk-del:hover{opacity:1; background:rgba(0,0,0,.22)}
+.dz{
+  min-height:12px; margin:5px 0 2px 13px; padding-left:9px;
+  border-left:2px dashed rgba(120,130,155,.32); border-radius:2px; transition:.15s;
+}
+.dz:empty{min-height:14px}
+.dz.hot{border-left-color:var(--accent); background:rgba(79,70,229,.05)}
+.dz.root{margin:0; padding:0; border:none; min-height:320px}
+.dz.root:empty::after{
+  content:'Перетащи сюда блоки'; display:block; text-align:center; color:#b6bdcc;
+  font-size:12px; padding-top:80px;
+}
+.blk.dragging{opacity:.28}
+.ghost{position:fixed; z-index:999; pointer-events:none; opacity:.92;
+  transform-origin:0 0; filter:drop-shadow(0 10px 20px rgba(20,25,45,.22));}
+.blk.playing .blk-head{outline:3px solid #fbbf24; outline-offset:1px}
+
+/* ── тост ─────────────────────────────────────── */
+#toast{
+  position:fixed; left:50%; bottom:34px; transform:translate(-50%,20px);
+  background:var(--ink); color:#fff; padding:12px 20px; border-radius:14px;
+  font-size:13px; font-weight:600; box-shadow:var(--shadow); z-index:200;
+  opacity:0; pointer-events:none; transition:.28s cubic-bezier(.34,1.4,.64,1);
+  max-width:min(560px,86vw); text-align:center; line-height:1.45;
+}
+#toast.on{opacity:1; transform:translate(-50%,0)}
+#toast.good{background:#16a34a}
+#toast.bad{background:#dc2626}
+
+/* ── LOADER ───────────────────────────────────── */
+#loader{
+  position:fixed; inset:0; z-index:10000; background:#fff;
+  display:flex; align-items:center; justify-content:center; flex-direction:column;
+  transition:opacity 2s ease;
+}
+#loader.hide{opacity:0; pointer-events:none}
+.loader-inner{display:flex; flex-direction:column; align-items:center}
+.loader-logo{
+  width:210px; height:210px;
+  animation:logoIn .75s cubic-bezier(.34,1.4,.64,1) both;
+}
+.loader-logo img,.loader-logo svg{width:100%;height:100%;display:block;object-fit:contain}
+@keyframes logoIn{
+  from{opacity:0; transform:scale(.82)}
+  to{opacity:1; transform:scale(1)}
+}
+.loader-bar{
+  width:150px; height:3px; background:#eef1f7; border-radius:3px; overflow:hidden;
+  margin-top:32px;
+}
+.loader-fill{
+  height:100%; width:0; border-radius:3px;
+  background:linear-gradient(90deg,#073423,#04412B);
+  animation:barFill 1.5s cubic-bezier(.45,.05,.25,1) .15s both;
+}
+@keyframes barFill{ to{ width:100% } }
+.loader-text{
+  margin-top:16px; font-size:11px; letter-spacing:.22em; text-transform:uppercase;
+  color:#b4bbca; font-weight:600;
+  animation:logoIn .6s ease .3s both;
+}
+
+/* ── ГЛАВНЫЙ ЭКРАН ────────────────────────────── */
+#mainScreen{
+  position:fixed; inset:0; z-index:9000; background:#fff;
+  display:flex; align-items:center; justify-content:center; flex-direction:column;
+  opacity:0; pointer-events:none; transition:opacity .6s ease;
+}
+#mainScreen.on{opacity:1; pointer-events:auto}
+#mainScreen::before{
+  content:''; position:absolute; inset:0; pointer-events:none;
+  background:
+    radial-gradient(circle at 50% 38%, rgba(79,70,229,.055), transparent 55%),
+    radial-gradient(circle at 78% 78%, rgba(124,58,237,.045), transparent 50%);
+}
+#mainScreen::after{
+  content:''; position:absolute; inset:0; pointer-events:none; opacity:.5;
+  background-image:radial-gradient(circle, #dfe3ec 1px, transparent 1.1px);
+  background-size:34px 34px;
+  mask-image:radial-gradient(circle at 50% 45%, #000 20%, transparent 62%);
+  -webkit-mask-image:radial-gradient(circle at 50% 45%, #000 20%, transparent 62%);
+}
+.ms-inner{
+  position:relative; z-index:1; text-align:center; padding:0 22px; max-width:620px;
+}
+.ms-logo{
+  width:218px; height:218px; margin:0 auto 30px;
+}
+.ms-logo img,.ms-logo svg{width:100%;height:100%;display:block;object-fit:contain}
+.ms-title{margin:0 0 18px; font-weight:700; letter-spacing:-.02em; line-height:1.05}
+.ms-line1{
+  display:block; font-size:14px; font-weight:650; letter-spacing:.28em;
+  text-transform:uppercase; color:#98a0b3; margin-bottom:12px;
+}
+.ms-line2{
+  display:block; font-size:44px; letter-spacing:-.025em;
+  background:linear-gradient(120deg,#1b2130 0%, #04412B 55%, #073423 100%);
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+.ms-desc{
+  font-size:15px; color:#6b7385; margin:0 0 36px; line-height:1.5;
+}
+#startBtn{
+  background:#04412B; color:#fff; border:none; cursor:pointer;
+  padding:16px 46px; border-radius:15px; font:inherit;
+  font-size:15px; font-weight:650; letter-spacing:.01em;
+  box-shadow:0 8px 24px rgba(20,25,45,.16);
+  transition:transform .22s cubic-bezier(.34,1.5,.64,1), background .2s, box-shadow .22s;
+}
+#startBtn:hover{
+  transform:translateY(-2px); background:#1b6d4d;
+}
+#startBtn:active{ transform:translateY(0) scale(.98) }
+.ms-foot{
+  margin-top:44px; font-size:11.5px; letter-spacing:.14em; text-transform:uppercase;
+  color:#b4bbca; font-weight:600;
+}
+.ms-foot b{ color:#4f46e5; font-weight:700 }
+
+/* появление элементов главного экрана */
+.ms-logo,.ms-line1,.ms-line2,.ms-desc,#startBtn,.ms-foot{opacity:0}
+#mainScreen.on .ms-logo   {animation:fadeUp .65s cubic-bezier(.34,1.4,.64,1) .05s both}
+#mainScreen.on .ms-line1  {animation:fadeUp .65s cubic-bezier(.34,1.4,.64,1) .15s both}
+#mainScreen.on .ms-line2  {animation:fadeUp .65s cubic-bezier(.34,1.4,.64,1) .22s both}
+#mainScreen.on .ms-desc   {animation:fadeUp .65s cubic-bezier(.34,1.4,.64,1) .32s both}
+#mainScreen.on #startBtn  {animation:fadeUp .65s cubic-bezier(.34,1.4,.64,1) .42s both}
+#mainScreen.on .ms-foot   {animation:fadeUp .65s cubic-bezier(.34,1.4,.64,1) .52s both}
+@keyframes fadeUp{
+  from{opacity:0; transform:translateY(14px)}
+  to{opacity:1; transform:translateY(0)}
+}
+
+/* скроллбары */
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:#d9dee8;border-radius:5px;border:2px solid #fff}
+::-webkit-scrollbar-thumb:hover{background:#c3cad8}
+::-webkit-scrollbar-track{background:transparent}
+</style>
+</head>
+<body>
+
+<!-- ═══ LOADER ═══ -->
+<div id="loader">
+  <div class="loader-inner">
+    <div class="loader-logo" id="loaderLogo"></div>
+    <div class="loader-bar"><div class="loader-fill"></div></div>
+    <div class="loader-text">Загрузка</div>
+  </div>
+</div>
+
+<!-- ═══ ГЛАВНЫЙ ЭКРАН ═══ -->
+<div id="mainScreen">
+  <div class="ms-inner">
+    <div class="ms-logo" id="msLogo"></div>
+    <h1 class="ms-title">
+      <span class="ms-line1">Цифровой лагерь</span>
+      <span class="ms-line2">Юный электроник</span>
+    </h1>
+    <p class="ms-desc">Собери схему, напиши программу, запусти свою идею.</p>
+    <button id="startBtn">Начать</button>
+  </div>
+</div>
+    
+<div id="grid"></div>
+<div id="world"><svg id="wireLayer" xmlns="http://www.w3.org/2000/svg"></svg></div>
+
+<!-- уровень -->
+<div id="levelCard">
+  <div class="lc-top">
+    <span class="lc-num">1/7</span>
+    <span class="lc-title">—</span>
+    <button id="collapseLvl" style="width:26px;padding:0;height:26px;background:transparent;border:none;font-size:15px;color:#98a0b3">▾</button>
+  </div>
+  <div class="lc-body"></div>
+  <div class="lc-actions">
+    <button id="prevLvl">←</button>
+    <button id="checkLvl">Проверить</button>
+    <button id="nextLvl">→</button>
+  </div>
+  <div class="dots" id="lvlDots"></div>
+</div>
+
+<!-- добавление -->
+<button id="addBtn">+</button>
+<div id="palette"></div>
+
+<!-- панель выделения -->
+<div id="selBar"></div>
+
+<!-- редактор блоков -->
+<div id="codePanel">
+  <div class="cp-head">
+    <h2>Программа <span class="sub">Arduino Uno</span></h2>
+    <button id="runBtn">▶ Запустить</button>
+    <button id="closePanel">×</button>
+  </div>
+  <div class="cp-body">
+    <div class="cp-palette" id="paletteBlocks"></div>
+    <div class="cp-script"><div class="dz root" data-parent="root" id="scriptRoot"></div></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+/* ═══════════════════════════════════════════════════════════
+   0. УТИЛИТЫ
+   ═══════════════════════════════════════════════════════════ */
+let _uid = 1;
+const uid = p => (p||'i') + (_uid++);
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+const $ = s => document.querySelector(s);
+
+/* ═══════════════════════════════════════════════════════════
+   1. ОПИСАНИЕ КОМПОНЕНТОВ
+   ═══════════════════════════════════════════════════════════ */
+const PIN_COLORS = { def:'#c7ced9' };
+
+function arduinoPins(){
+  const p = [];
+  const dig = [13,12,11,10,9,8,7,6,5,4,3,2,1,0];
+  dig.forEach((n,i)=> p.push({id:'D'+n, label:String(n), x:34+i*13, y:0, dir:'up'}));
+  [['5V','5V'],['3V3','3V3'],['GND1','GND'],['GND2','GND'],['VIN','VIN']]
+    .forEach(([id,label],i)=> p.push({id, label, x:34+i*17, y:140, dir:'down'}));
+  for(let i=0;i<6;i++) p.push({id:'A'+i, label:'A'+i, x:130+i*16, y:140, dir:'down'});
+  return p;
+}
+
+const DEFS = {
+  arduino:{
+    name:'Arduino Uno', w:230, h:140, labelColor:'rgba(255,255,255,.62)',
+    pins: arduinoPins(),
+    internal: [['GND1','GND2']],
+    render(){
+      return `<svg width="230" height="140" viewBox="0 0 230 140">
+        <rect x="1" y="1" width="228" height="138" rx="13" fill="#0f766e"/>
+        <rect x="7" y="7" width="216" height="126" rx="9" fill="#14a08a" opacity=".38"/>
+        <rect x="6" y="52" width="32" height="30" rx="4" fill="#cbd5e1"/>
+        <rect x="6" y="52" width="32" height="30" rx="4" fill="none" stroke="#94a3b8" stroke-width="1"/>
+        <rect x="158" y="78" width="44" height="44" rx="4" fill="#111827"/>
+        <text x="180" y="104" font-size="7.5" fill="#64748b" text-anchor="middle" font-family="ui-monospace,monospace">ATmega</text>
+        <text x="66" y="76" font-size="15" font-weight="800" fill="#fff" opacity=".92" letter-spacing=".5">ADELE</text>
+        <text x="67" y="90" font-size="9.5" fill="#fff" opacity=".5" letter-spacing="3">BOARD</text>
+        <circle cx="211" cy="16" r="3.5" fill="#22c55e"/>
+        <circle cx="211" cy="28" r="3.5" fill="#f59e0b"/>
+        <rect x="14" y="96" width="26" height="14" rx="3" fill="#0b5f57"/>
+        <text x="27" y="106" font-size="6" fill="#5eead4" text-anchor="middle" font-family="ui-monospace,monospace">RESET</text>
+      </svg>`;
+    }
+  },
+
+  breadboard:{
+    name:'Плата питания', w:320, h:100, labelColor:'#98a0b3',
+    pins:(()=>{ const p=[];
+      for(let i=0;i<14;i++) p.push({id:'P'+i, x:26+i*21, y:20, dir:'up', label:i===0?'+':''});
+      for(let i=0;i<14;i++) p.push({id:'N'+i, x:26+i*21, y:80, dir:'down', label:i===0?'−':''});
+      return p; })(),
+    internal:(()=>{ const e=[];
+      for(let i=1;i<14;i++){ e.push(['P0','P'+i]); e.push(['N0','N'+i]); }
+      return e; })(),
+    render(){
+      let holes='';
+      for(let i=0;i<14;i++){
+        holes += `<rect x="${26+i*21-4}" y="34" width="8" height="8" rx="2" fill="#c9d0dc"/>`;
+        holes += `<rect x="${26+i*21-4}" y="58" width="8" height="8" rx="2" fill="#c9d0dc"/>`;
+      }
+      return `<svg width="320" height="100" viewBox="0 0 320 100">
+        <rect x="1" y="1" width="318" height="98" rx="12" fill="#f1f4f9" stroke="#dfe4ee"/>
+        <line x1="10" y1="20" x2="310" y2="20" stroke="#ef4444" stroke-width="2" opacity=".45"/>
+        <line x1="10" y1="80" x2="310" y2="80" stroke="#334155" stroke-width="2" opacity=".45"/>
+        <line x1="10" y1="50" x2="310" y2="50" stroke="#dfe4ee" stroke-width="2"/>
+        ${holes}
+        <text x="12" y="16" font-size="9" fill="#ef4444" font-weight="700">+</text>
+        <text x="12" y="92" font-size="9" fill="#334155" font-weight="700">−</text>
+      </svg>`;
+    }
+  },
+
+  led:{
+    name:'Светодиод', w:40, h:72, labelColor:'#9aa2b4',
+    pins:[{id:'A', x:13, y:70, dir:'down', label:'+'},
+          {id:'C', x:27, y:70, dir:'down', label:'−'}],
+    series:[['A','C','LED']],
+    render(c){
+      const col = c.props.color || '#ef4444';
+      return `<svg width="40" height="72" viewBox="0 0 40 72" style="color:${col}">
+        <circle class="led-glow" cx="20" cy="22" r="17" fill="${col}" opacity="0"/>
+        <circle class="led-dome" cx="20" cy="22" r="13" fill="${col}" opacity=".92"/>
+        <ellipse cx="15" cy="16" rx="4.5" ry="3.2" fill="#fff" opacity=".35" transform="rotate(-28 15 16)"/>
+        <rect x="7" y="32" width="26" height="9" rx="4" fill="#d7dce5"/>
+        <line x1="13" y1="41" x2="13" y2="70" stroke="#9aa2b4" stroke-width="3" stroke-linecap="round"/>
+        <line x1="27" y1="41" x2="27" y2="70" stroke="#9aa2b4" stroke-width="3" stroke-linecap="round"/>
+      </svg>`;
+    }
+  },
+
+  resistor:{
+    name:'Резистор', w:72, h:26, labelColor:'#9aa2b4',
+    pins:[{id:'1', x:3, y:13, dir:'down'},{id:'2', x:69, y:13, dir:'down'}],
+    series:[['1','2','R']],
+    render(){
+      return `<svg width="72" height="26" viewBox="0 0 72 26">
+        <line x1="3" y1="13" x2="14" y2="13" stroke="#9aa2b4" stroke-width="3" stroke-linecap="round"/>
+        <line x1="58" y1="13" x2="69" y2="13" stroke="#9aa2b4" stroke-width="3" stroke-linecap="round"/>
+        <rect x="14" y="4" width="44" height="18" rx="9" fill="#e8d9b8"/>
+        <rect x="20" y="4" width="5" height="18" fill="#8b5a2b"/>
+        <rect x="28" y="4" width="4" height="18" fill="#111827"/>
+        <rect x="35" y="4" width="5" height="18" fill="#dc2626"/>
+        <rect x="44" y="4" width="4" height="18" fill="#f59e0b"/>
+      </svg>`;
+    }
+  },
+
+  button:{
+    name:'Кнопка', w:64, h:66, labelColor:'#9aa2b4',
+    pins:[{id:'A', x:16, y:64, dir:'down'},{id:'B', x:48, y:64, dir:'down'}],
+    series:[['A','B','SW']],
+    render(){
+      return `<svg width="64" height="66" viewBox="0 0 64 66">
+        <rect x="6" y="8" width="52" height="46" rx="8" fill="#e6eaf2" stroke="#d3dae6"/>
+        <circle cx="32" cy="31" r="14" fill="#c0392b"/>
+        <circle cx="32" cy="29" r="11" fill="#e04b3a"/>
+        <circle cx="28" cy="25" r="3.6" fill="#fff" opacity=".3"/>
+        <line x1="16" y1="54" x2="16" y2="64" stroke="#9aa2b4" stroke-width="3" stroke-linecap="round"/>
+        <line x1="48" y1="54" x2="48" y2="64" stroke="#9aa2b4" stroke-width="3" stroke-linecap="round"/>
+      </svg>`;
+    }
+  },
+
+  buzzer:{
+    name:'Зуммер', w:54, h:62, labelColor:'#9aa2b4',
+    pins:[{id:'P', x:18, y:60, dir:'down', label:'+'},
+          {id:'N', x:36, y:60, dir:'down', label:'−'}],
+    series:[['P','N','BZ']],
+    render(){
+      return `<svg width="54" height="62" viewBox="0 0 54 62">
+        <circle cx="27" cy="27" r="21" fill="#1f2937"/>
+        <circle cx="27" cy="27" r="13" fill="#0b1220"/>
+        <circle cx="27" cy="27" r="3" fill="#4b5563"/>
+        <text x="27" y="12" font-size="8" fill="#9ca3af" text-anchor="middle" font-weight="700">♪</text>
+        <line x1="18" y1="48" x2="18" y2="60" stroke="#9aa2b4" stroke-width="3" stroke-linecap="round"/>
+        <line x1="36" y1="48" x2="36" y2="60" stroke="#9aa2b4" stroke-width="3" stroke-linecap="round"/>
+      </svg>`;
+    }
+  },
+
+  pot:{
+    name:'Потенциометр', w:62, h:52, labelColor:'#9aa2b4',
+    pins:[{id:'1', x:10, y:50, dir:'down'},{id:'2', x:31, y:50, dir:'down'},{id:'3', x:52, y:50, dir:'down'}],
+    series:[['1','2','POT'],['2','3','POT']],
+    render(){
+      return `<svg width="62" height="52" viewBox="0 0 62 52">
+        <rect x="5" y="8" width="52" height="34" rx="7" fill="#2f6f8f"/>
+        <circle cx="31" cy="25" r="12" fill="#1e4d63"/>
+        <circle cx="31" cy="25" r="5" fill="#cbd5e1"/>
+        <line x1="10" y1="42" x2="10" y2="50" stroke="#9aa2b4" stroke-width="3" stroke-linecap="round"/>
+        <line x1="31" y1="42" x2="31" y2="50" stroke="#9aa2b4" stroke-width="3" stroke-linecap="round"/>
+        <line x1="52" y1="42" x2="52" y2="50" stroke="#9aa2b4" stroke-width="3" stroke-linecap="round"/>
+      </svg>`;
+    }
+  },
+
+  battery:{
+    name:'Батарея', w:74, h:42, labelColor:'#9aa2b4',
+    pins:[{id:'+', x:4, y:21, dir:'down', label:'+'},
+          {id:'-', x:70, y:21, dir:'down', label:'−'}],
+    series:[['+','-','BAT']],
+    render(){
+      return `<svg width="74" height="42" viewBox="0 0 74 42">
+        <rect x="8" y="8" width="58" height="26" rx="6" fill="#111827"/>
+        <rect x="8" y="8" width="58" height="9" rx="4" fill="#374151"/>
+        <text x="37" y="28" font-size="10" fill="#9ca3af" text-anchor="middle" font-weight="700" font-family="ui-monospace,monospace">9V</text>
+        <line x1="4" y1="21" x2="8" y2="21" stroke="#9aa2b4" stroke-width="3" stroke-linecap="round"/>
+        <line x1="66" y1="21" x2="70" y2="21" stroke="#9aa2b4" stroke-width="3" stroke-linecap="round"/>
+      </svg>`;
+    }
+  }
+};
+
+/* ═══════════════════════════════════════════════════════════
+   2. СОСТОЯНИЕ
+   ═══════════════════════════════════════════════════════════ */
+const state = {
+  cam:{x:0,y:0,k:1},
+  comps:[], wires:[], program:[],
+  level:0, selected:null, playing:false,
+  done:new Set()
+};
+
+const world     = $('#world');
+const wireLayer = $('#wireLayer');
+const grid      = $('#grid');
+
+/* ═══════════════════════════════════════════════════════════
+   3. КАМЕРА
+   ═══════════════════════════════════════════════════════════ */
+function applyCam(){
+  world.style.transform = `translate(${state.cam.x}px, ${state.cam.y}px) scale(${state.cam.k})`;
+  const s = 26 * state.cam.k;
+  grid.style.backgroundSize = `${s}px ${s}px`;
+  grid.style.backgroundPosition = `${state.cam.x}px ${state.cam.y}px`;
+}
+function s2w(sx, sy){
+  return { x:(sx - state.cam.x)/state.cam.k, y:(sy - state.cam.y)/state.cam.k };
+}
+function centerOn(c){
+  const d = DEFS[c.type];
+  state.cam.x = innerWidth/2 - (c.x + d.w/2)*state.cam.k - (isPanelOpen()?245:0);
+  state.cam.y = innerHeight/2 - (c.y + d.h/2)*state.cam.k;
+  applyCam();
+}
+function isPanelOpen(){ return $('#codePanel').classList.contains('open'); }
+
+grid.addEventListener('pointerdown', e=>{
+  if(e.button !== 0 && e.button !== 1) return;
+  e.preventDefault();
+  closeSelBar();
+  const sx = e.clientX, sy = e.clientY;
+  const ox = state.cam.x, oy = state.cam.y;
+  grid.classList.add('panning');
+  grid.setPointerCapture(e.pointerId);
+  const move = ev=>{
+    state.cam.x = ox + (ev.clientX - sx);
+    state.cam.y = oy + (ev.clientY - sy);
+    applyCam();
+  };
+  const up = ()=>{
+    grid.classList.remove('panning');
+    grid.removeEventListener('pointermove', move);
+    grid.removeEventListener('pointerup', up);
+  };
+  grid.addEventListener('pointermove', move);
+  grid.addEventListener('pointerup', up);
+});
+
+addEventListener('wheel', e=>{
+  if(e.target.closest('#codePanel')) return;
+  e.preventDefault();
+  const f = Math.exp(-e.deltaY * 0.0016);
+  const nk = clamp(state.cam.k * f, 0.3, 2.6);
+  const w = s2w(e.clientX, e.clientY);
+  state.cam.k = nk;
+  state.cam.x = e.clientX - w.x * nk;
+  state.cam.y = e.clientY - w.y * nk;
+  applyCam();
+}, {passive:false});
+
+/* ═══════════════════════════════════════════════════════════
+   4. КОМПОНЕНТЫ
+   ═══════════════════════════════════════════════════════════ */
+function getComp(id){ return state.comps.find(c=>c.id===id); }
+
+function pinsSVG(c){
+  const d = DEFS[c.type];
+  let s = `<svg class="pinlayer" width="${d.w}" height="${d.h}"
+    style="position:absolute;inset:0;overflow:visible;pointer-events:none">`;
+  for(const p of d.pins){
+    s += `<circle class="pin-hit" data-pin="${p.id}" cx="${p.x}" cy="${p.y}" r="10"
+            fill="transparent" style="pointer-events:all"/>`;
+    s += `<circle class="pin" data-pin="${p.id}" cx="${p.x}" cy="${p.y}" r="4.2" pointer-events="none"/>`;
+    if(p.label){
+      const ly = p.dir === 'up' ? p.y + 26 : p.y - 11;
+      s += `<text class="pin-label" x="${p.x}" y="${ly}" text-anchor="middle"
+              fill="${d.labelColor||'#98a0b3'}">${p.label}</text>`;
+    }
+  }
+  return s + `</svg>`;
+}
+
+function renderComp(c){
+  const d = DEFS[c.type];
+  const el = document.createElement('div');
+  el.className = 'comp';
+  el.dataset.id = c.id;
+  el.style.left = c.x + 'px';
+  el.style.top  = c.y + 'px';
+  el.style.width  = d.w + 'px';
+  el.style.height = d.h + 'px';
+  el.innerHTML = d.render(c) + pinsSVG(c);
+  return el;
+}
+
+function renderAll(){
+  world.querySelectorAll('.comp').forEach(e=>e.remove());
+  for(const c of state.comps) world.appendChild(renderComp(c));
+  renderWires();
+  refreshPinStates();
+}
+
+function addComponent(type, wx, wy, props){
+  const d = DEFS[type];
+  const c = { id: uid('c'), type, x: Math.round(wx - d.w/2), y: Math.round(wy - d.h/2), props: props||{} };
+  if(type === 'led') c.props.color = c.props.color || '#ef4444';
+  state.comps.push(c);
+  world.appendChild(renderComp(c));
+  renderWires();
+  return c;
+}
+
+/* ── перетаскивание ─────────────────────────── */
+let compDrag = null;
+world.addEventListener('pointerdown', e=>{
+  const pinEl = e.target.closest ? e.target.closest('.pin-hit') : null;
+  if(pinEl){
+    e.stopPropagation(); e.preventDefault();
+    startWire(e, pinEl.closest('.comp').dataset.id, pinEl.dataset.pin);
+    return;
+  }
+  const compEl = e.target.closest ? e.target.closest('.comp') : null;
+  if(!compEl) return;
+  e.stopPropagation(); e.preventDefault();
+  const c = getComp(compEl.dataset.id);
+  if(!c) return;
+  const start = s2w(e.clientX, e.clientY);
+  const ox = c.x, oy = c.y;
+  let moved = 0;
+  compEl.classList.add('dragging');
+  compEl.setPointerCapture(e.pointerId);
+  const move = ev=>{
+    const w = s2w(ev.clientX, ev.clientY);
+    c.x = Math.round(ox + w.x - start.x);
+    c.y = Math.round(oy + w.y - start.y);
+    moved = Math.max(moved, Math.abs(w.x-start.x) + Math.abs(w.y-start.y));
+    compEl.style.left = c.x + 'px';
+    compEl.style.top  = c.y + 'px';
+    renderWires();
+    const sb = $('#selBar');
+    if(sb.classList.contains('on')) positionSelBar(c);
+  };
+  const up = ()=>{
+    compEl.classList.remove('dragging');
+    compEl.removeEventListener('pointermove', move);
+    compEl.removeEventListener('pointerup', up);
+    if(moved < 3) onCompClick(c);
+  };
+  compEl.addEventListener('pointermove', move);
+  compEl.addEventListener('pointerup', up);
+});
+
+function onCompClick(c){
+  state.selected = c;
+  showSelBar(c);
+  if(c.type === 'arduino') openPanel();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   5. ПРОВОДА
+   ═══════════════════════════════════════════════════════════ */
+function pinPos(ref){
+  const c = getComp(ref.c); if(!c) return null;
+  const d = DEFS[c.type];
+  const p = d.pins.find(q=>q.id === ref.p); if(!p) return null;
+  return { x: c.x + p.x, y: c.y + p.y };
+}
+
+function isGroundPin(ref){
+  return /^GND/.test(ref.p) || ref.p === 'N' || ref.p === '-' || /^N\d/.test(ref.p);
+}
+function isPowerPin(ref){
+  return ref.p === '5V' || ref.p === '3V3' || ref.p === 'VIN' || ref.p === '+' || /^P\d/.test(ref.p);
+}
+
+function wireColor(a, b){
+  if(isGroundPin(a) || isGroundPin(b)) return '#334155';
+  if(isPowerPin(a) || isPowerPin(b)) return '#ef4444';
+  const pal = ['#f59e0b','#3b82f6','#8b5cf6','#10b981','#ec4899','#06b6d4'];
+  return pal[(state.wires.length) % pal.length];
+}
+
+let pendingWire = null;
+
+function startWire(e, compId, pinId){
+  const a = { c:compId, p:pinId };
+  pendingWire = { a, x:e.clientX, y:e.clientY };
+  renderWires();
+  const move = ev=>{
+    pendingWire.x = ev.clientX; pendingWire.y = ev.clientY;
+    renderWires();
+  };
+  const up = ev=>{
+    removeEventListener('pointermove', move);
+    removeEventListener('pointerup', up);
+    const el = document.elementFromPoint(ev.clientX, ev.clientY);
+    const hit = el && el.closest ? el.closest('.pin-hit') : null;
+    if(hit){
+      const cid = hit.closest('.comp').dataset.id;
+      const pid = hit.dataset.pin;
+      if(!(cid === compId && pid === pinId)) addWire(a, { c:cid, p:pid });
+    }
+    pendingWire = null;
+    renderWires();
+  };
+  addEventListener('pointermove', move);
+  addEventListener('pointerup', up);
+}
+
+function addWire(a, b){
+  const dup = state.wires.some(w =>
+    (w.a.c===a.c && w.a.p===a.p && w.b.c===b.c && w.b.p===b.p) ||
+    (w.a.c===b.c && w.a.p===b.p && w.b.c===a.c && w.b.p===a.p));
+  if(dup) return;
+  state.wires.push({ id: uid('w'), a, b, color: wireColor(a,b) });
+  refreshPinStates();
+}
+
+function renderWires(){
+  let s = '';
+  for(const w of state.wires){
+    const a = pinPos(w.a), b = pinPos(w.b);
+    if(!a || !b) continue;
+    const mx = (a.x+b.x)/2;
+    const my = (a.y+b.y)/2 + 26 + Math.abs(a.x-b.x)*0.13;
+    s += `<path class="wire" data-id="${w.id}"
+      d="M${a.x} ${a.y} Q${mx} ${my} ${b.x} ${b.y}"
+      stroke="${w.color}" stroke-width="3.2" fill="none" stroke-linecap="round"/>`;
+  }
+  if(pendingWire){
+    const a = pinPos(pendingWire.a);
+    if(a){
+      const w = s2w(pendingWire.x, pendingWire.y);
+      const mx = (a.x+w.x)/2, my = (a.y+w.y)/2 + 26;
+      s += `<path class="wire temp" d="M${a.x} ${a.y} Q${mx} ${my} ${w.x} ${w.y}"
+        stroke="#4f46e5" stroke-width="3" fill="none" stroke-linecap="round"/>`;
+    }
+  }
+  wireLayer.innerHTML = s;
+}
+
+wireLayer.addEventListener('click', e=>{
+  const p = e.target.closest ? e.target.closest('.wire') : null;
+  if(!p || p.classList.contains('temp')) return;
+  state.wires = state.wires.filter(w=>w.id !== p.dataset.id);
+  renderWires();
+  refreshPinStates();
+});
+
+function refreshPinStates(){
+  const used = new Set();
+  for(const w of state.wires){ used.add(w.a.c+':'+w.a.p); used.add(w.b.c+':'+w.b.p); }
+  world.querySelectorAll('.comp').forEach(el=>{
+    el.querySelectorAll('.pin').forEach(p=>{
+      p.classList.toggle('used', used.has(el.dataset.id+':'+p.dataset.pin));
+    });
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════
+   6. ПАНЕЛЬ ВЫДЕЛЕНИЯ
+   ═══════════════════════════════════════════════════════════ */
+const selBar = $('#selBar');
+function showSelBar(c){
+  const d = DEFS[c.type];
+  const el = world.querySelector(`.comp[data-id="${c.id}"]`);
+  if(!el) return;
+  let html = '';
+  if(c.type === 'led'){
+    for(const col of ['#ef4444','#22c55e','#f59e0b','#3b82f6','#e5e7eb']){
+      html += `<div class="sw" data-color="${col}" style="background:${col}"></div>`;
+    }
+    html += `<div class="sep"></div>`;
+  }
+  html += `<button data-act="del" title="Удалить">🗑</button>`;
+  selBar.innerHTML = html;
+  selBar.classList.add('on');
+  positionSelBar(c);
+}
+function positionSelBar(c){
+  const d = DEFS[c.type];
+  const sx = (c.x + d.w/2)*state.cam.k + state.cam.x;
+  const sy = (c.y)*state.cam.k + state.cam.y - 12;
+  selBar.style.left = sx + 'px';
+  selBar.style.top  = sy + 'px';
+}
+function closeSelBar(){ selBar.classList.remove('on'); state.selected = null; }
+
+selBar.addEventListener('click', e=>{
+  const c = state.selected; if(!c) return;
+  const sw = e.target.closest('.sw');
+  if(sw){
+    c.props.color = sw.dataset.color;
+    const el = world.querySelector(`.comp[data-id="${c.id}"]`);
+    if(el){ el.innerHTML = DEFS.led.render(c) + pinsSVG(c); }
+    return;
+  }
+  const btn = e.target.closest('button');
+  if(btn && btn.dataset.act === 'del'){
+    state.comps = state.comps.filter(x=>x.id !== c.id);
+    state.wires = state.wires.filter(w=>w.a.c !== c.id && w.b.c !== c.id);
+    renderAll();
+    closeSelBar();
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════
+   7. ПАЛИТРА ДОБАВЛЕНИЯ
+   ═══════════════════════════════════════════════════════════ */
+const PALETTE_ICONS = {
+  arduino:'<svg width="20" height="14" viewBox="0 0 20 14"><rect width="20" height="14" rx="3" fill="#0f766e"/><rect x="14" y="4" width="4" height="6" rx="1" fill="#111827"/></svg>',
+  breadboard:'<svg width="20" height="14" viewBox="0 0 20 14"><rect width="20" height="14" rx="3" fill="#eef1f7" stroke="#dde2ec"/><line x1="2" y1="4" x2="18" y2="4" stroke="#ef4444" opacity=".5"/><line x1="2" y1="10" x2="18" y2="10" stroke="#334155" opacity=".5"/></svg>',
+  led:'<svg width="14" height="18" viewBox="0 0 14 18"><circle cx="7" cy="6" r="5.5" fill="#ef4444"/><rect x="3" y="10.5" width="8" height="3" rx="1.5" fill="#d7dce5"/><line x1="5" y1="13" x2="5" y2="18" stroke="#9aa2b4" stroke-width="1.6"/><line x1="9" y1="13" x2="9" y2="18" stroke="#9aa2b4" stroke-width="1.6"/></svg>',
+  resistor:'<svg width="20" height="12" viewBox="0 0 20 12"><rect x="4" y="2" width="12" height="8" rx="4" fill="#e8d9b8"/><line x1="0" y1="6" x2="4" y2="6" stroke="#9aa2b4" stroke-width="1.8"/><line x1="16" y1="6" x2="20" y2="6" stroke="#9aa2b4" stroke-width="1.8"/><rect x="7" y="2" width="2" height="8" fill="#8b5a2b"/><rect x="11" y="2" width="2" height="8" fill="#dc2626"/></svg>',
+  button:'<svg width="16" height="16" viewBox="0 0 16 16"><rect x="1" y="1" width="14" height="11" rx="2.5" fill="#e6eaf2"/><circle cx="8" cy="6.5" r="4" fill="#c0392b"/></svg>',
+  buzzer:'<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="#1f2937"/><circle cx="8" cy="8" r="3.5" fill="#0b1220"/></svg>',
+  pot:'<svg width="16" height="16" viewBox="0 0 16 16"><rect x="1" y="2" width="14" height="10" rx="2.5" fill="#2f6f8f"/><circle cx="8" cy="7" r="3.4" fill="#1e4d63"/></svg>',
+  battery:'<svg width="20" height="12" viewBox="0 0 20 12"><rect x="2" y="1" width="16" height="10" rx="2.5" fill="#111827"/><rect x="2" y="1" width="16" height="4" rx="2" fill="#374151"/></svg>'
+};
+
+const PALETTE_ITEMS = [
+  ['arduino','Arduino Uno'],['breadboard','Плата'],
+  ['led','Светодиод'],['resistor','Резистор'],
+  ['button','Кнопка'],['buzzer','Зуммер'],
+  ['pot','Потенциометр'],['battery','Батарея']
+];
+
+(function buildPalette(){
+  const p = $('#palette');
+  p.innerHTML = PALETTE_ITEMS.map(([t,n])=>
+    `<button data-type="${t}"><span class="ic">${PALETTE_ICONS[t]}</span>${n}</button>`).join('');
+  p.addEventListener('click', e=>{
+    const b = e.target.closest('button'); if(!b) return;
+    const c = s2w(innerWidth/2 - (isPanelOpen()?245:0), innerHeight/2);
+    const comp = addComponent(b.dataset.type, c.x, c.y);
+    state.selected = comp;
+    showSelBar(comp);
+    p.classList.remove('open');
+    $('#addBtn').classList.remove('open');
+  });
+})();
+
+$('#addBtn').addEventListener('click', ()=>{
+  const p = $('#palette');
+  p.classList.toggle('open');
+  $('#addBtn').classList.toggle('open');
+});
+
+/* ═══════════════════════════════════════════════════════════
+   8. БЛОКИ
+   ═══════════════════════════════════════════════════════════ */
+const PIN_OPTS = ['D0','D1','D2','D3','D4','D5','D6','D7','D8','D9','D10','D11','D12','D13','A0','A1','A2','A3','A4','A5'];
+
+const BLOCK_DEFS = {
+  digitalWrite:{
+    cat:'Вывод', color:'#2563eb', text:'пин {pin} = {val}',
+    params:{ pin:{type:'pin', def:'D13'}, val:{type:'sel', opts:[['HIGH','HIGH'],['LOW','LOW']], def:'HIGH'} }
+  },
+  analogWrite:{
+    cat:'Вывод', color:'#2563eb', text:'пин {pin} ШИМ = {val}',
+    params:{ pin:{type:'pin', def:'D9'}, val:{type:'num', def:128, min:0, max:255} }
+  },
+  pinMode:{
+    cat:'Вывод', color:'#2563eb', text:'пин {pin} режим {mode}',
+    params:{ pin:{type:'pin', def:'D13'}, mode:{type:'sel', opts:[['OUTPUT','ВЫХОД'],['INPUT','ВХОД']], def:'OUTPUT'} }
+  },
+  tone:{
+    cat:'Звук', color:'#7c3aed', text:'пищать {pin} {freq} Гц',
+    params:{ pin:{type:'pin', def:'D8'}, freq:{type:'num', def:440, min:20, max:4000} }
+  },
+  noTone:{
+    cat:'Звук', color:'#7c3aed', text:'выключить звук {pin}',
+    params:{ pin:{type:'pin', def:'D8'} }
+  },
+  delay:{
+    cat:'Время', color:'#f59e0b', text:'ждать {ms} мс',
+    params:{ ms:{type:'num', def:500, min:0, max:20000} }
+  },
+  repeat:{
+    cat:'Управление', color:'#16a34a', text:'повторить {n} раз', hasChildren:true,
+    params:{ n:{type:'num', def:3, min:0, max:200} }
+  },
+  forever:{
+    cat:'Управление', color:'#16a34a', text:'всегда', hasChildren:true, params:{}
+  },
+  ifHigh:{
+    cat:'Управление', color:'#dc2626', text:'если кнопка {pin} нажата', hasChildren:true,
+    params:{ pin:{type:'pin', def:'D2'} }
+  }
+};
+
+function mkBlock(type){
+  const d = BLOCK_DEFS[type];
+  const b = { id: uid('b'), type, params:{}, children:[] };
+  for(const k in d.params) b.params[k] = d.params[k].def;
+  return b;
+}
+
+function paramHTML(b, key, def){
+  const v = b.params[key];
+  if(def.type === 'pin'){
+    return `<select data-param="${key}">${PIN_OPTS.map(o=>
+      `<option value="${o}"${o===v?' selected':''}>${o}</option>`).join('')}</select>`;
+  }
+  if(def.type === 'sel'){
+    return `<select data-param="${key}">${def.opts.map(([val,lab])=>
+      `<option value="${val}"${val===v?' selected':''}>${lab}</option>`).join('')}</select>`;
+  }
+  return `<input type="number" data-param="${key}" value="${v}" min="${def.min}" max="${def.max}">`;
+}
+
+function blockHTML(b){
+  const d = BLOCK_DEFS[b.type];
+  const head = d.text.replace(/\{(\w+)\}/g, (m,k)=> paramHTML(b, k, d.params[k]));
+  const kids = d.hasChildren
+    ? `<div class="dz" data-parent="${b.id}">${b.children.map(blockHTML).join('')}</div>`
+    : '';
+  return `<div class="blk" data-id="${b.id}" style="--c:${d.color}">
+    <div class="blk-head"><span>${head}</span><button class="blk-del">×</button></div>
+    ${kids}
+  </div>`;
+}
+
+function renderProgram(){
+  $('#scriptRoot').innerHTML = state.program.map(blockHTML).join('');
+}
+
+(function buildBlockPalette(){
+  const cats = {};
+  for(const t in BLOCK_DEFS){
+    const d = BLOCK_DEFS[t];
+    (cats[d.cat] = cats[d.cat] || []).push(t);
+  }
+  let html = '';
+  for(const cat in cats){
+    html += `<div class="cat">${cat}</div>`;
+    for(const t of cats[cat]){
+      const d = BLOCK_DEFS[t];
+      const head = d.text.replace(/\{(\w+)\}/g, (m,k)=>{
+        const p = d.params[k];
+        if(p.type === 'num') return `<span style="background:rgba(255,255,255,.9);color:#1b2130;border-radius:5px;padding:1px 5px">${p.def}</span>`;
+        if(p.type === 'pin') return `<span style="background:rgba(255,255,255,.9);color:#1b2130;border-radius:5px;padding:1px 5px">${p.def}</span>`;
+        return `<span style="background:rgba(255,255,255,.9);color:#1b2130;border-radius:5px;padding:1px 5px">${p.opts[0][1]}</span>`;
+      });
+      html += `<div class="blk blk-pal" data-new="${t}" style="--c:${d.color}">
+        <div class="blk-head"><span>${head}</span></div></div>`;
+    }
+  }
+  $('#paletteBlocks').innerHTML = html;
+})();
+
+/* ── drag&drop блоков ───────────────────────── */
+let bdrag = null;
+
+document.addEventListener('pointerdown', e=>{
+  const blk = e.target.closest('.blk');
+  if(!blk || !blk.closest('#codePanel')) return;
+  if(e.target.closest('select,input,button')) return;
+  e.preventDefault();
+  const isNew = !!blk.dataset.new;
+  if(!isNew && !e.target.closest('.blk-head')) return;
+
+  const ghost = blk.cloneNode(true);
+  ghost.classList.add('ghost');
+  const r = blk.getBoundingClientRect();
+  ghost.style.left = r.left + 'px';
+  ghost.style.top  = r.top + 'px';
+  ghost.style.width = r.width + 'px';
+  document.body.appendChild(ghost);
+
+  const ox = e.clientX - r.left, oy = e.clientY - r.top;
+  bdrag = { isNew, type: blk.dataset.new, id: blk.dataset.id, ghost, src: blk };
+  if(!isNew) blk.classList.add('dragging');
+
+  const move = ev=>{
+    ghost.style.left = (ev.clientX - ox) + 'px';
+    ghost.style.top  = (ev.clientY - oy) + 'px';
+    document.querySelectorAll('.dz.hot').forEach(d=>d.classList.remove('hot'));
+    const t = findDrop(ev.clientX, ev.clientY);
+    if(t) t.dz.classList.add('hot');
+  };
+  const up = ev=>{
+    removeEventListener('pointermove', move);
+    removeEventListener('pointerup', up);
+    document.querySelectorAll('.dz.hot').forEach(d=>d.classList.remove('hot'));
+    ghost.remove();
+    if(!bdrag) return;
+    if(bdrag.src) bdrag.src.classList.remove('dragging');
+
+    const t = findDrop(ev.clientX, ev.clientY);
+    if(t){
+      const parentId = t.dz.dataset.parent;
+      // защита от вложения в самого себя
+      let bad = false;
+      if(!bdrag.isNew){
+        let p = t.dz.parentElement;
+        while(p){
+          if(p.classList && p.classList.contains('blk') && p.dataset.id === bdrag.id){ bad = true; break; }
+          p = p.parentElement;
+        }
+      }
+      if(!bad){
+        const block = bdrag.isNew ? mkBlock(bdrag.type) : removeBlockById(bdrag.id);
+        if(block){
+          const list = findList(parentId);
+          const idx = clamp(t.index, 0, list.length);
+          list.splice(idx, 0, block);
+        }
+      }
+    }
+    bdrag = null;
+    renderProgram();
+    if(state.playing) { /* сброс подсветки */ }
+  };
+  addEventListener('pointermove', move);
+  addEventListener('pointerup', up);
+});
+
+function findDrop(x, y){
+  const els = document.elementsFromPoint(x, y);
+  let dzEl = null, blkEl = null;
+  for(const el of els){
+    if(!el.classList) continue;
+    if(!dzEl && el.classList.contains('dz')) dzEl = el;
+    if(!blkEl && el.classList.contains('blk')) blkEl = el;
+    if(dzEl) break;
+  }
+  if(!dzEl && blkEl) dzEl = blkEl.parentElement && blkEl.parentElement.closest('.dz');
+  if(!dzEl) return null;
+  return { dz: dzEl, index: insertIndex(dzEl, y) };
+}
+
+function insertIndex(dz, y){
+  const kids = [...dz.children].filter(e=>e.classList && e.classList.contains('blk'));
+  for(let i=0;i<kids.length;i++){
+    const r = kids[i].getBoundingClientRect();
+    if(y < r.top + r.height/2) return i;
+  }
+  return kids.length;
+}
+
+function findList(parentId){
+  if(parentId === 'root') return state.program;
+  const b = findBlockById(state.program, parentId);
+  return b ? b.children : state.program;
+}
+function findBlockById(list, id){
+  for(const b of list){
+    if(b.id === id) return b;
+    const r = findBlockById(b.children || [], id);
+    if(r) return r;
+  }
+  return null;
+}
+function removeBlockById(id){
+  const walk = list=>{
+    for(let i=0;i<list.length;i++){
+      if(list[i].id === id) return list.splice(i,1)[0];
+      const r = walk(list[i].children || []);
+      if(r) return r;
+    }
+    return null;
+  };
+  return walk(state.program);
+}
+
+/* ── изменения параметров ───────────────────── */
+$('#codePanel').addEventListener('change', e=>{
+  const inp = e.target;
+  if(!inp.dataset.param) return;
+  const blkEl = inp.closest('.blk');
+  if(!blkEl) return;
+  const b = findBlockById(state.program, blkEl.dataset.id);
+  if(!b) return;
+  b.params[inp.dataset.param] = inp.value;
+});
+$('#codePanel').addEventListener('input', e=>{
+  const inp = e.target;
+  if(inp.tagName !== 'INPUT' || !inp.dataset.param) return;
+  const blkEl = inp.closest('.blk');
+  if(!blkEl) return;
+  const b = findBlockById(state.program, blkEl.dataset.id);
+  if(b) b.params[inp.dataset.param] = inp.value;
+});
+
+$('#codePanel').addEventListener('click', e=>{
+  const del = e.target.closest('.blk-del');
+  if(!del) return;
+  e.stopPropagation();
+  const blkEl = del.closest('.blk');
+  removeBlockById(blkEl.dataset.id);
+  renderProgram();
+});
+
+/* ── открытие/закрытие панели ───────────────── */
+function openPanel(){ $('#codePanel').classList.add('open'); }
+$('#closePanel').addEventListener('click', ()=> $('#codePanel').classList.remove('open'));
+
+/* ═══════════════════════════════════════════════════════════
+   9. ГРАФ СХЕМЫ
+   ═══════════════════════════════════════════════════════════ */
+function buildAdj(){
+  const adj = new Map();
+  const add = (a,b,tag,comp)=>{
+    if(!adj.has(a)) adj.set(a,[]);
+    if(!adj.has(b)) adj.set(b,[]);
+    adj.get(a).push({to:b, tag, comp});
+    adj.get(b).push({to:a, tag, comp});
+  };
+  for(const w of state.wires) add(w.a.c+':'+w.a.p, w.b.c+':'+w.b.p, 'wire');
+  for(const c of state.comps){
+    const d = DEFS[c.type];
+    if(d.internal) for(const [x,y] of d.internal) add(c.id+':'+x, c.id+':'+y, 'wire');
+    if(d.series)   for(const [x,y,t] of d.series) add(c.id+':'+x, c.id+':'+y, t, c.id);
+  }
+  return adj;
+}
+
+function connectedNo(adj, from, to, forbid){
+  const seen = new Set();
+  const stack = [from];
+  while(stack.length){
+    const n = stack.pop();
+    if(seen.has(n)) continue;
+    seen.add(n);
+    if(n === to) return true;
+    for(const e of (adj.get(n) || [])){
+      if(forbid.includes(e.tag)) continue;
+      if(!seen.has(e.to)) stack.push(e.to);
+    }
+  }
+  return false;
+}
+
+function ard(){ return state.comps.find(c=>c.type === 'arduino'); }
+function compsOf(t){ return state.comps.filter(c=>c.type === t); }
+
+/** Светодиод, включённый между пином и GND */
+function ledOnPin(pin){
+  const a = ard(); if(!a) return null;
+  const adj = buildAdj();
+  const forbid = ['LED','SW','BZ','POT','BAT'];
+  for(const led of compsOf('led')){
+    const anodeOk = connectedNo(adj, a.id+':'+pin, led.id+':A', forbid);
+    const gndOk = connectedNo(adj, led.id+':C', a.id+':GND1', forbid) ||
+                  connectedNo(adj, led.id+':C', a.id+':GND2', forbid);
+    if(anodeOk && gndOk) return led;
+  }
+  return null;
+}
+
+/** Кнопка, подключённая к пину */
+function buttonOnPin(pin){
+  const a = ard(); if(!a) return null;
+  const adj = buildAdj();
+  const forbid = ['LED','BZ','POT','BAT'];
+  for(const btn of compsOf('button')){
+    const p1 = connectedNo(adj, a.id+':'+pin, btn.id+':A', forbid);
+    const p2 = connectedNo(adj, a.id+':'+pin, btn.id+':B', forbid);
+    const toGnd = connectedNo(adj, btn.id+':A', a.id+':GND1', forbid) ||
+                  connectedNo(adj, btn.id+':A', a.id+':GND2', forbid) ||
+                  connectedNo(adj, btn.id+':B', a.id+':GND1', forbid) ||
+                  connectedNo(adj, btn.id+':B', a.id+':GND2', forbid);
+    if((p1 || p2) && toGnd) return btn;
+  }
+  return null;
+}
+
+/** Зуммер, подключённый к пину */
+function buzzerOnPin(pin){
+  const a = ard(); if(!a) return null;
+  const adj = buildAdj();
+  const forbid = ['LED','SW','POT','BAT'];
+  for(const bz of compsOf('buzzer')){
+    const pOk = connectedNo(adj, a.id+':'+pin, bz.id+':P', forbid);
+    const nOk = connectedNo(adj, bz.id+':N', a.id+':GND1', forbid) ||
+                connectedNo(adj, bz.id+':N', a.id+':GND2', forbid);
+    if(pOk && nOk) return bz;
+  }
+  return null;
+}
+
+/* ── утилиты программы ──────────────────────── */
+function allBlocks(list, out){
+  out = out || [];
+  for(const b of (list || state.program)){
+    out.push(b);
+    if(b.children) allBlocks(b.children, out);
+  }
+  return out;
+}
+function hasBlock(type, pred){
+  return allBlocks(state.program).some(b => b.type === type && (!pred || pred(b)));
+}
+
+/* ═══════════════════════════════════════════════════════════
+   10. СИМУЛЯЦИЯ
+   ═══════════════════════════════════════════════════════════ */
+function simulate(program, inputs, maxMs){
+  maxMs = maxMs || 6000;
+  const timeline = [];
+  const events = [];
+  let t = 0, steps = 0, aborted = false;
+
+  function exec(list){
+    for(const b of list){
+      if(aborted) return;
+      if(++steps > 2500 || t > maxMs){ aborted = true; return; }
+      events.push({ t, id: b.id });
+      const p = b.params;
+      switch(b.type){
+        case 'digitalWrite':
+          timeline.push({ t, pin:p.pin, val: p.val === 'HIGH' ? 1 : 0 });
+          break;
+        case 'analogWrite':
+          timeline.push({ t, pin:p.pin, val: clamp(+p.val / 255, 0, 1) });
+          break;
+        case 'delay':
+          t += Math.max(0, +p.ms || 0);
+          break;
+        case 'repeat': {
+          const n = clamp(+p.n || 0, 0, 200);
+          for(let i=0;i<n && !aborted;i++) exec(b.children);
+          break;
+        }
+        case 'forever': {
+          let guard = 0;
+          while(!aborted && t < maxMs && guard++ < 80) exec(b.children);
+          break;
+        }
+        case 'ifHigh':
+          if(inputs[p.pin]) exec(b.children);
+          break;
+        case 'tone':
+          timeline.push({ t, pin:p.pin, val:'tone', freq:+p.freq });
+          break;
+        case 'noTone':
+          timeline.push({ t, pin:p.pin, val:'notone' });
+          break;
+      }
+    }
+  }
+  exec(program);
+  return { timeline, events, duration: Math.min(t, maxMs) };
+}
+
+function valAt(timeline, pin, t){
+  let v = 0;
+  for(const e of timeline){
+    if(e.t > t) break;
+    if(e.pin === pin) v = e.val;
+  }
+  return typeof v === 'number' ? v : 0;
+}
+
+/* ── запуск ─────────────────────────────────── */
+let playState = null;
+
+function stopProgram(){
+  if(playState){
+    cancelAnimationFrame(playState.raf);
+    playState = null;
+  }
+  state.playing = false;
+  document.querySelectorAll('.blk.playing').forEach(e=>e.classList.remove('playing'));
+  document.querySelectorAll('.comp.lit').forEach(e=>e.classList.remove('lit'));
+  const btn = $('#runBtn');
+  btn.textContent = '▶ Запустить';
+  btn.classList.remove('stop');
+}
+
+function runProgram(){
+  if(state.playing){ stopProgram(); return; }
+  if(!state.program.length){ toast('Программа пуста — перетащи блоки справа', 'bad'); return; }
+
+  const a = ard();
+  const adj = buildAdj();
+
+  // какие пины управляют светодиодами
+  const ledSrc = {};
+  for(const led of compsOf('led')){
+    const srcs = [];
+    if(a){
+      const seen = new Set([led.id+':A']);
+      const stack = [led.id+':A'];
+      while(stack.length){
+        const n = stack.pop();
+        if(n.startsWith(a.id+':')) srcs.push(n.split(':')[1]);
+        for(const e of (adj.get(n) || [])){
+          if(e.tag === 'LED') continue;
+          if(seen.has(e.to)) continue;
+          seen.add(e.to); stack.push(e.to);
+        }
+      }
+    }
+    ledSrc[led.id] = srcs;
+  }
+
+  // кнопки -> считаем "нажатыми"
+  const inputs = {};
+  for(const btn of compsOf('button')){
+    for(const p of PIN_OPTS){
+      if(buttonOnPin(p) === btn) inputs[p] = 1;
+    }
+  }
+
+  const sim = simulate(state.program, inputs);
+  const btn = $('#runBtn');
+  btn.textContent = '■ Стоп';
+  btn.classList.add('stop');
+  state.playing = true;
+
+  const t0 = performance.now();
+  let lastBlockId = null;
+
+  playState = { raf: 0 };
+  const frame = ()=>{
+    if(!state.playing) return;
+    const now = performance.now() - t0;
+    if(now > sim.duration + 400){
+      // мягкая остановка без сброса класса кнопки сразу
+      stopProgram();
+      return;
+    }
+    const t = Math.min(now, sim.duration);
+
+    // светодиоды
+    for(const led of compsOf('led')){
+      const el = world.querySelector(`.comp[data-id="${led.id}"]`);
+      if(!el) continue;
+      const srcs = ledSrc[led.id] || [];
+      let lit = false;
+      for(const s of srcs){
+        if(valAt(sim.timeline, s, t) > 0.35){ lit = true; break; }
+      }
+      el.classList.toggle('lit', lit);
+    }
+
+    // подсветка блока
+    let cur = null;
+    for(const ev of sim.events){
+      if(ev.t <= t) cur = ev.id; else break;
+    }
+    if(cur !== lastBlockId){
+      lastBlockId = cur;
+      document.querySelectorAll('.blk.playing').forEach(e=>e.classList.remove('playing'));
+      if(cur){
+        const el = document.querySelector(`.blk[data-id="${cur}"]`);
+        if(el) el.classList.add('playing');
+      }
+    }
+
+    playState.raf = requestAnimationFrame(frame);
+  };
+  playState.raf = requestAnimationFrame(frame);
+}
+
+$('#runBtn').addEventListener('click', runProgram);
+
+/* ═══════════════════════════════════════════════════════════
+   11. УРОВНИ
+   ═══════════════════════════════════════════════════════════ */
+const PWM_PINS = ['D3','D5','D6','D9','D10','D11'];
+
+function ok(msg){ return { ok:true, msg: msg || 'Отлично! Задание выполнено 🎉' }; }
+function fail(msg){ return { ok:false, msg }; }
+
+const LEVELS = [
+  {
+    title:'Зажги светодиод',
+    task:'Кликни «+» и добавь на поле <b>Arduino Uno</b> и <b>Светодиод</b>. ' +
+         'Соедини длинную ножку (+) светодиода с пином <b>13</b>, а короткую (−) — с <b>GND</b>. ' +
+         'Затем кликни по плате и собери программу: <b>пин D13 = HIGH</b>.',
+    hint:'Провода тянутся от одного кружка-пина к другому.',
+    check(){
+      if(!ard()) return fail('Нужна плата Arduino Uno.');
+      const led = ledOnPin('D13');
+      if(!led) return fail('Светодиод не подключён между пином D13 и GND.');
+      if(!hasBlock('digitalWrite', b => b.params.pin === 'D13' && b.params.val === 'HIGH'))
+        return fail('В программе нет блока «пин D13 = HIGH».');
+      return ok('Светодиод горит! Уровень 1 пройден.');
+    }
+  },
+  {
+    title:'Мигание',
+    task:'Оставь схему из первого уровня и добавь в программу мигание: ' +
+         '<b>D13 = HIGH</b> → <b>ждать 500 мс</b> → <b>D13 = LOW</b> → <b>ждать 500 мс</b>. ' +
+         'Оберни всё в блок <b>«всегда»</b>, чтобы светодиод мигал бесконечно.',
+    check(){
+      if(!ard()) return fail('Нужна плата Arduino Uno.');
+      if(!ledOnPin('D13')) return fail('Светодиод не подключён между пином D13 и GND.');
+      const writes = allBlocks(state.program).filter(b=>b.type === 'digitalWrite' && b.params.pin === 'D13');
+      const hi = writes.some(b=>b.params.val === 'HIGH');
+      const lo = writes.some(b=>b.params.val === 'LOW');
+      if(!hi || !lo) return fail('Нужны два блока: D13 = HIGH и D13 = LOW.');
+      if(!hasBlock('delay')) return fail('Добавь блок «ждать» — иначе мигание не увидеть.');
+      if(!hasBlock('forever') && !hasBlock('repeat'))
+        return fail('Оберни мигание в «всегда» или «повторить», чтобы оно повторялось.');
+      return ok('Мигает! Уровень 2 пройден.');
+    }
+  },
+  {
+    title:'Кнопка',
+    task:'Добавь <b>Кнопку</b> и подключи её между пином <b>D2</b> и <b>GND</b>. ' +
+         'Светодиод оставь на D13. В программе используй блок ' +
+         '<b>«если кнопка D2 нажата»</b> и положи внутрь <b>D13 = HIGH</b>, ' +
+         'а после условия — <b>D13 = LOW</b>.',
+    check(){
+      if(!ard()) return fail('Нужна плата Arduino Uno.');
+      if(!ledOnPin('D13')) return fail('Светодиод не подключён к D13 и GND.');
+      if(!buttonOnPin('D2')) return fail('Кнопка не подключена между D2 и GND.');
+      const cond = allBlocks(state.program).find(b=>b.type === 'ifHigh' && b.params.pin === 'D2');
+      if(!cond) return fail('В программе нет блока «если кнопка D2 нажата».');
+      const inside = cond.children.some(b=>b.type === 'digitalWrite' && b.params.val === 'HIGH');
+      if(!inside) return fail('Внутри условия должен быть блок D13 = HIGH.');
+      return ok('Кнопка работает! Уровень 3 пройден.');
+    }
+  },
+  {
+    title:'Плавный свет',
+    task:'Подключи светодиод к пину <b>D9</b> (он поддерживает ШИМ) и к GND. ' +
+         'Вместо digitalWrite используй блок <b>«пин D9 ШИМ = …»</b> со значением около <b>60–200</b>. ' +
+         'Светодиод будет светить вполнакала.',
+    check(){
+      if(!ard()) return fail('Нужна плата Arduino Uno.');
+      const pins = PWM_PINS.filter(p => ledOnPin(p));
+      if(!pins.length) return fail('Подключи светодиод к одному из ШИМ-пинов: D3, D5, D6, D9, D10, D11.');
+      const aw = allBlocks(state.program).filter(b=>b.type === 'analogWrite' && pins.includes(b.params.pin));
+      if(!aw.length) return fail('Нужен блок «пин … ШИМ = …» для подключённого пина.');
+      const val = +aw[aw.length-1].params.val;
+      if(!(val > 10 && val < 245)) return fail('Значение ШИМ должно быть средним (например 128), а не 0 или 255.');
+      return ok('Плавное свечение настроено! Уровень 4 пройден.');
+    }
+  },
+  {
+    title:'Светофор',
+    task:'Добавь <b>три светодиода</b> и подключи их к пинам <b>D11</b>, <b>D12</b> и <b>D13</b> ' +
+         '(вторые ножки — на GND). В программе по очереди зажигай их: ' +
+         'D13 = HIGH → ждать → D13 = LOW, D12 = HIGH → ждать … и так по кругу.',
+    check(){
+      if(!ard()) return fail('Нужна плата Arduino Uno.');
+      const pins = ['D11','D12','D13'];
+      const missing = pins.filter(p => !ledOnPin(p));
+      if(missing.length) return fail('Не подключены светодиоды к: ' + missing.join(', '));
+      for(const p of pins){
+        if(!hasBlock('digitalWrite', b => b.params.pin === p && b.params.val === 'HIGH'))
+          return fail('Нет блока включения пина ' + p + '.');
+      }
+      if(!hasBlock('delay')) return fail('Добавь блоки «ждать», чтобы огни переключались по очереди.');
+      return ok('Светофор работает! Уровень 5 пройден.');
+    }
+  },
+  {
+    title:'Зуммер',
+    task:'Добавь <b>Зуммер</b> и подключи его плюс к пину <b>D8</b>, минус — к <b>GND</b>. ' +
+         'Собери мелодию из трёх блоков <b>«пищать D8 … Гц»</b> с разными частотами ' +
+         '(например 262, 330, 392) и паузами между ними.',
+    check(){
+      if(!ard()) return fail('Нужна плата Arduino Uno.');
+      if(!buzzerOnPin('D8')) return fail('Зуммер не подключён между D8 и GND.');
+      const tones = allBlocks(state.program).filter(b=>b.type === 'tone');
+      if(tones.length < 3) return fail('Нужно минимум три блока «пищать» — мелодия из трёх нот.');
+      const freqs = new Set(tones.map(b=>+b.params.freq));
+      if(freqs.size < 2) return fail('Сделай ноты разными по частоте.');
+      if(!hasBlock('delay')) return fail('Добавь паузы «ждать» между нотами.');
+      return ok('Мелодия играет! Уровень 6 пройден.');
+    }
+  },
+  {
+    title:'Умный дом',
+    task:'Финальная сборка. Размести <b>Arduino</b>, <b>кнопку</b> (D2–GND), ' +
+         '<b>светодиод</b> (D13–GND) и <b>зуммер</b> (D8–GND). ' +
+         'В программе: <b>если кнопка D2 нажата</b> → включить D13 и издать звук, ' +
+         'иначе — выключить. Всё внутри блока <b>«всегда»</b>.',
+    check(){
+      if(!ard()) return fail('Нужна плата Arduino Uno.');
+      if(!ledOnPin('D13')) return fail('Светодиод не подключён к D13 и GND.');
+      if(!buttonOnPin('D2')) return fail('Кнопка не подключена между D2 и GND.');
+      if(!buzzerOnPin('D8')) return fail('Зуммер не подключён между D8 и GND.');
+      const cond = allBlocks(state.program).find(b=>b.type === 'ifHigh' && b.params.pin === 'D2');
+      if(!cond) return fail('Нужен блок «если кнопка D2 нажата».');
+      const inLed = cond.children.some(b=>b.type === 'digitalWrite' && b.params.pin === 'D13');
+      const inTone = cond.children.some(b=>b.type === 'tone');
+      if(!inLed || !inTone) return fail('Внутри условия должны быть включение светодиода D13 и звук.');
+      if(!hasBlock('forever') && !hasBlock('repeat'))
+        return fail('Оберни всё в «всегда», чтобы система реагировала постоянно.');
+      return ok('Умный дом собран! Все 7 уровней пройдены 🏆');
+    }
+  }
+];
+
+/* ── отрисовка карточки уровня ──────────────── */
+function renderLevel(){
+  const L = LEVELS[state.level];
+  $('#levelCard .lc-num').textContent = (state.level+1) + '/7';
+  $('#levelCard .lc-title').textContent = L.title;
+  $('#levelCard .lc-body').innerHTML = L.task +
+    (L.hint ? `<div style="margin-top:9px;color:#98a0b3;font-size:11.5px">💡 ${L.hint}</div>` : '');
+  const dots = $('#lvlDots');
+  dots.innerHTML = LEVELS.map((_,i)=>
+    `<div class="dot ${i===state.level?'on':''} ${state.done.has(i)?'done':''}" data-i="${i}"></div>`).join('');
+}
+$('#lvlDots').addEventListener('click', e=>{
+  const d = e.target.closest('.dot'); if(!d) return;
+  state.level = +d.dataset.i; renderLevel();
+});
+$('#prevLvl').addEventListener('click', ()=>{
+  state.level = (state.level + LEVELS.length - 1) % LEVELS.length; renderLevel();
+});
+$('#nextLvl').addEventListener('click', ()=>{
+  state.level = (state.level + 1) % LEVELS.length; renderLevel();
+});
+$('#collapseLvl').addEventListener('click', ()=>{
+  $('#levelCard').classList.toggle('collapsed');
+});
+$('#checkLvl').addEventListener('click', ()=>{
+  const res = LEVELS[state.level].check();
+  if(res.ok){
+    state.done.add(state.level);
+    renderLevel();
+    toast(res.msg, 'good');
+  } else {
+    toast(res.msg, 'bad');
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════
+   12. ТОСТ
+   ═══════════════════════════════════════════════════════════ */
+let toastTimer = null;
+function toast(msg, kind){
+  const t = $('#toast');
+  t.textContent = msg;
+  t.className = 'on ' + (kind || '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>{ t.className = ''; }, 3800);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   13. СТАРТ
+   ═══════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════
+   14. LOADER + ГЛАВНЫЙ ЭКРАН
+   ═══════════════════════════════════════════════════════════ */
+const FALLBACK_LOGO = `
+<svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4f46e5"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+  </defs>
+  <rect x="30" y="30" width="60" height="60" rx="15" fill="url(#lg)"/>
+  <rect x="44" y="44" width="32" height="32" rx="6" fill="#ffffff" opacity=".95"/>
+  <rect x="52" y="52" width="16" height="16" rx="3" fill="url(#lg)"/>
+  <g stroke="url(#lg)" stroke-width="5" stroke-linecap="round">
+    <line x1="16" y1="42" x2="30" y2="42"/>
+    <line x1="16" y1="60" x2="30" y2="60"/>
+    <line x1="16" y1="78" x2="30" y2="78"/>
+    <line x1="90" y1="42" x2="104" y2="42"/>
+    <line x1="90" y1="60" x2="104" y2="60"/>
+    <line x1="90" y1="78" x2="104" y2="78"/>
+    <line x1="42" y1="16" x2="42" y2="30"/>
+    <line x1="60" y1="16" x2="60" y2="30"/>
+    <line x1="78" y1="16" x2="78" y2="30"/>
+    <line x1="42" y1="90" x2="42" y2="104"/>
+    <line x1="60" y1="90" x2="60" y2="104"/>
+    <line x1="78" y1="90" x2="78" y2="104"/>
+  </g>
+</svg>`;
+
+function injectLogo(container){
+  const img = document.createElement('img');
+  img.src = 'logo.svg';
+  img.alt = '';
+  img.draggable = false;
+  img.onerror = () => { container.innerHTML = FALLBACK_LOGO; };
+  container.innerHTML = '';
+  container.appendChild(img);
+}
+injectLogo(document.getElementById('loaderLogo'));
+injectLogo(document.getElementById('msLogo'));
+
+/* ── инициализация приложения под оверлеем ─────── */
+(function init(){
+  applyCam();
+  const a = addComponent('arduino', 0, 0);
+  state.cam.k = 1;
+  centerOn(a);
+  renderLevel();
+  renderProgram();
+})();
+
+/* ── последовательность: loader → главный экран ── */
+(function boot(){
+  const loader = document.getElementById('loader');
+  const main   = document.getElementById('mainScreen');
+
+  setTimeout(()=>{
+    loader.classList.add('hide');
+    setTimeout(()=>{
+      loader.style.display = 'none';
+      main.classList.add('on');
+    }, 480);
+  }, 1600);
+})();
+
+/* ── кнопка «Начать» ──────────────────────────── */
+document.getElementById('startBtn').addEventListener('click', ()=>{
+  const main = document.getElementById('mainScreen');
+  main.classList.remove('on');
+  setTimeout(()=>{
+    main.style.display = 'none';
+    toast('Нажми «+» внизу слева, чтобы добавить детали', '');
+  }, 620);
+});
+
+/* горячие клавиши */
+addEventListener('keydown', e=>{
+  if(e.key === 'Escape'){
+    if(bdrag){ bdrag = null; }
+    $('#palette').classList.remove('open');
+    $('#addBtn').classList.remove('open');
+    closeSelBar();
+  }
+  if((e.key === 'Delete' || e.key === 'Backspace') && state.selected){
+    const c = state.selected;
+    state.comps = state.comps.filter(x=>x.id !== c.id);
+    state.wires = state.wires.filter(w=>w.a.c !== c.id && w.b.c !== c.id);
+    renderAll(); closeSelBar();
+  }
+  if(e.code === 'Space' && !e.repeat && !e.target.closest('#codePanel')){
+    e.preventDefault();
+  }
+});
+</script>
+</body>
+</html>
